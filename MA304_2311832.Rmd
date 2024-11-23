@@ -1,0 +1,205 @@
+---
+title: "MA304_2311832"
+author: "Amala Jelfa"
+date: "2024-04-15"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+The provided datasets are temperature and crime. The first and the foremost step is to load and understand the data. 
+
+```{r}
+# Reading the data from Excel file
+df.crime <- read.csv("/Users/amala/OneDrive/Desktop/MA304_data/crime23.csv")
+df.temp <- read.csv("/Users/amala/OneDrive/Desktop/MA304_data/temp2023.csv")
+```
+
+```{r}
+# Creating a data frame of crime and temperature 
+df.crime <- data.frame(df.crime)
+df.temp <- data.frame(df.temp)
+```
+
+```{r}
+# Dimension of the crime dataset
+dim(df.crime)
+```
+There are 12 columns in the crime dataset such as category, persistent ID, date, latitude, longitude, street ID and name, location type and outcome status. 
+```{r}
+# Checking and analyzing the total number of missing values in crime dataset
+missing_crime_val <- sapply(df.crime, function(x) sum(is.na(x)))
+crime_miss <- data.frame(Col = names(missing_crime_val), Count_of_NA = missing_crime_val)
+crime_miss
+```
+
+It has been found that the context column and the outcome status has missing values, which are 6878 and 677 respectively.
+
+
+```{r}
+# Checking and analyzing the total number of missing values in temp dataset 
+missing_temp_val <- sapply(df.temp, function(x) sum(is.na(x)))
+temp_miss <- data.frame(Col = names(missing_temp_val), Count_of_NA = missing_temp_val)
+temp_miss
+```
+
+```{r}
+# Imputing the most occurring character in the col outcome status
+library(tidyverse)
+getmode <- function(y) {
+  uniqval <- unique(na.omit(y)) 
+  uniqval[which.max(tabulate(match(y, uniqval)))]
+}
+
+df.crime$outcome_status <- replace_na(df.crime$outcome_status, getmode(df.crime$outcome_status))
+
+
+View(df.crime)
+df.crime <- subset(df.crime, select = -context)
+```
+
+```{r}
+library(mice)
+methods(mice)
+df.temp <- subset(df.temp, select = -c(station_ID, PreselevHp, SnowDepcm))
+impute_data <- mice(df.temp, m=10, method="pmm", seed=5000)
+full_df_temp <- complete(impute_data)
+summary(full_df_temp)
+missing_temp_val <- sapply(full_df_temp, function(x) sum(is.na(x)))
+
+missing_temp_val
+
+```
+
+```{r}
+#checking for any duplicate values in the dataset 
+dup_crime <- df.crime[duplicated(df.crime),]
+dup_crime
+dup_temp <- full_df_temp[duplicated(full_df_temp)]
+dup_temp
+```
+
+There are no duplicates found in the crime and temp datasets.
+
+```{r}
+# Creating a table
+
+crime_based <- table(df.crime$category, df.crime$outcome_status)
+library(knitr)
+kable(crime_based, caption = "Crimes detected based on the Category and Outcome status")
+
+```
+
+```{r}
+#Creating a new column Month to categorize from Date 
+full_df_temp$Month <- month(full_df_temp$Date, label = TRUE, abbr = TRUE)
+full_df_temp
+```
+
+```{r}
+install.packages(ggplotly)
+# Creating a histogram using temp dataset
+library(ggplot2)
+library(plotly)
+library(grDevices)
+
+z <- ggplot(full_df_temp, aes(x=TemperatureCAvg, fill=Month)) + geom_histogram(stat ="bin", bins=30) + theme_classic()+ facet_wrap(~Month, ncol = 5) + theme(axis.text.x= element_text(angle = 45, vjust = 0.5, hjust = 1))
+ggplotly(z, height = 400, width = 600)
+ 
+```
+
+```{r}
+#install.packages("plotly")
+library(plotly)
+library(lubridate)
+library(dplyr)
+
+crime_count_pm <- df.crime %>% group_by(date) %>% summarise(crime.count =n()) %>% mutate(percentage = crime.count/ sum(crime.count)*100)
+crime_count_pm 
+
+plot_ly(crime_count_pm, labels =~date, values =~percentage, type="pie", textinfo="label+percent", insidetextorientation="radial") %>% layout(title="Number of crimes based on every month")
+
+```
+
+```{r}
+# Result of the crime investigated according to street name
+library(ggplot2)
+
+df.crime %>%
+  mutate(category=as.factor(category), long=as.factor(long), lat=as.factor(lat))
+
+ggplot(data=df.crime) +
+  geom_point(mapping = aes(x=long, y=outcome_status, color=lat))+
+  geom_line(mapping = aes(x=long, y=outcome_status, color=lat))
+```
+
+```{r}
+library(plotly)
+full_df_temp %>%
+  mutate(TemperatureCMax=as.factor(TemperatureCMax), WindkmhDir=as.factor(WindkmhDir), Month=as.factor(Month))
+
+ggplot(data=full_df_temp)  +
+  geom_bar(mapping = aes(x=TemperatureCMax, fill=WindkmhDir))
+
+full_df_temp %>%
+  group_by(TemperatureCMax) %>%
+  ggplot() +
+  geom_col(mapping = aes(x=TemperatureCMax, y=WindkmhDir, Month="purple"))
+```
+
+
+```{r}
+library(ggcorrplot)
+cor <- round(cor(df.temp$TemperatureCMin, df.temp$HrAvg),1)
+cor_pmat(df.temp) 
+GCP <- ggcorrplot(cor, hc.order = FALSE)
+ggplotly(GCP,height = 400, width = 600)
+df.temp$PresslevHp
+```
+
+```{r}
+library(ggcorrplot)
+
+cor_col <- full_df_temp[, c("TotClOct", "lowClOct", "WindkmhInt", "PresslevHp")]
+cor_mat <- round(cor(cor_col, use = "complete.obs"), 1)
+pval_mat <- cor_pmat(cor_col)
+
+GCP <- ggcorrplot(cor_mat, hc.order = TRUE, p.mat =pval_mat, insig = "blank")
+ggplotly(GCP, height = 400,width=700)
+```
+```{r}
+library(lubridate)
+library(xts)
+library(forecast)
+library(ggfortify)
+
+df.dates <- ymd(full_df_temp$Date)
+rain <- full_df_temp$VisKm
+heavyr <- xts(data.frame(rain=rain), order.by = df.dates)
+autoplot(heavyr)+theme_bw()
+```
+```{r}
+library(xts)
+prdt_r <- forecast::ma(rain, 4, centre = TRUE) 
+org <- xts(data.frame(rain=rain, prdt_r), df.dates)
+org <- na.omit(org)
+autoplot.zoo(org,facet=NULL)+
+geom_line(size=1.1) +
+scale_color_manual( values = c("darkgrey","blue"), breaks = c("rain", "prdt_r"),labels = c("Rain", "Visibility in km "))+theme_bw()
+```
+
+```{r}
+library(ggplot2)
+library(Rcpp)
+library(sf)
+library(tidyverse)
+library(ggmap)
+library(leaflet)
+
+crime.map <- df.crime %>%
+names(crime.map) <- c("lat", "long", "n", names(crime.map)[4:5])
+leaf <- crime.map %>% leaflet() %>% addTiles() %>% setView() %>% addCircleMarkers(popup=~n)
+```
+
+
